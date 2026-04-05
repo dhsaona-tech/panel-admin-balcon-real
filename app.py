@@ -21,16 +21,20 @@ st.set_page_config(
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
-        # Intenta cargar desde secrets de Streamlit Cloud
-        try:
-            cred_dict = dict(st.secrets["firebase"])
-            # Fix private key newlines
-            if "private_key" in cred_dict:
-                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-            cred = credentials.Certificate(cred_dict)
-        except:
-            # Fallback: archivo local
-            cred = credentials.Certificate("firebase-credentials.json")
+        cred_dict = {
+            "type": st.secrets["firebase"]["type"],
+            "project_id": st.secrets["firebase"]["project_id"],
+            "private_key_id": st.secrets["firebase"]["private_key_id"],
+            "private_key": st.secrets["firebase"]["private_key"].replace("\\n", "\n"),
+            "client_email": st.secrets["firebase"]["client_email"],
+            "client_id": st.secrets["firebase"]["client_id"],
+            "auth_uri": st.secrets["firebase"]["auth_uri"],
+            "token_uri": st.secrets["firebase"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
+            "universe_domain": st.secrets["firebase"]["universe_domain"],
+        }
+        cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
     return firestore.client()
 
