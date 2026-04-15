@@ -1,10 +1,12 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import requests
+import pandas as pd
+import io
 
 # ══════════════════════════════════════════════════════
 # CONFIGURACIÓN DE PÁGINA
@@ -42,104 +44,52 @@ def init_firebase():
 db = init_firebase()
 
 # ══════════════════════════════════════════════════════
-# TOKEN DE TELEGRAM (para notificaciones)
+# TELEGRAM NOTIFICACIONES
 # ══════════════════════════════════════════════════════
 TELEGRAM_TOKEN = st.secrets.get("telegram", {}).get("token", "")
 
 def enviar_notificacion_telegram(user_id, mensaje):
-    """Envía un mensaje al usuario vía el bot de Telegram"""
     if not TELEGRAM_TOKEN:
         return False
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": user_id, "text": mensaje, "parse_mode": "HTML"}
+        payload = {"chat_id": user_id, "text": mensaje}
         resp = requests.post(url, json=payload, timeout=10)
         return resp.status_code == 200
-    except Exception as e:
-        print(f"Error enviando notificación: {e}")
+    except:
         return False
 
 # ══════════════════════════════════════════════════════
-# ESTILOS CSS
+# CSS COMPACTO Y PROFESIONAL
 # ══════════════════════════════════════════════════════
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-
     * { font-family: 'DM Sans', sans-serif; }
 
-    /* Sidebar */
-    div[data-testid="stSidebar"] {
-        background: #0F1A2E;
-    }
+    div[data-testid="stSidebar"] { background: linear-gradient(180deg, #1E3A5F 0%, #2D5F8B 100%); }
     div[data-testid="stSidebar"] .stMarkdown p,
     div[data-testid="stSidebar"] .stMarkdown h1,
     div[data-testid="stSidebar"] .stMarkdown h2,
     div[data-testid="stSidebar"] .stMarkdown h3,
     div[data-testid="stSidebar"] .stMarkdown h4,
     div[data-testid="stSidebar"] .stMarkdown h5 {
-        color: #E2E8F0 !important;
-    }
-    div[data-testid="stSidebar"] .stRadio label p {
-        color: #CBD5E1 !important;
-        font-size: 0.95rem;
+        color: white !important;
     }
 
-    /* Header */
-    .page-header {
-        font-size: 1.75rem;
-        font-weight: 700;
-        color: #0F1A2E;
-        margin-bottom: 0.25rem;
-        letter-spacing: -0.02em;
-    }
-    .page-sub {
-        font-size: 0.95rem;
-        color: #64748B;
-        margin-bottom: 1.5rem;
-    }
+    .page-title { font-size: 1.4rem; font-weight: 700; color: #1E3A5F; margin-bottom: 0.15rem; }
+    .page-subtitle { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
 
-    /* Metric cards */
-    .kpi-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        text-align: center;
-        transition: box-shadow 0.2s;
+    .kpi-box {
+        background: #fff; border: 1px solid #E5E7EB; border-radius: 8px;
+        padding: 0.8rem 1rem; text-align: center;
     }
-    .kpi-card:hover {
-        box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-    }
-    .kpi-number {
-        font-size: 2.25rem;
-        font-weight: 700;
-        margin: 0;
-        line-height: 1.2;
-    }
-    .kpi-label {
-        font-size: 0.8rem;
-        color: #64748B;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin: 0.25rem 0 0 0;
-        font-weight: 600;
-    }
-    .kpi-accent-blue .kpi-number { color: #2563EB; }
-    .kpi-accent-amber .kpi-number { color: #D97706; }
-    .kpi-accent-green .kpi-number { color: #059669; }
-    .kpi-accent-red .kpi-number { color: #DC2626; }
-    .kpi-accent-purple .kpi-number { color: #7C3AED; }
+    .kpi-num { font-size: 1.6rem; font-weight: 700; margin: 0; line-height: 1.2; }
+    .kpi-label { font-size: 0.7rem; color: #6B7280; text-transform: uppercase; letter-spacing: 0.04em; margin: 0.15rem 0 0 0; font-weight: 600; }
 
-    /* Status badges */
     .badge {
-        display: inline-block;
-        padding: 4px 14px;
-        border-radius: 100px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        display: inline-block; padding: 2px 10px; border-radius: 100px;
+        font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
     }
     .badge-pendiente { background: #FEF3C7; color: #92400E; }
     .badge-en_proceso { background: #DBEAFE; color: #1E40AF; }
@@ -147,104 +97,29 @@ st.markdown("""
     .badge-aprobada { background: #D1FAE5; color: #065F46; }
     .badge-rechazada { background: #FEE2E2; color: #991B1B; }
 
-    /* Cards */
-    .report-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 0.75rem;
-        transition: box-shadow 0.2s;
+    .item-card {
+        background: #fff; border: 1px solid #E5E7EB; border-radius: 8px;
+        padding: 0.75rem 1rem; margin-bottom: 0.5rem; font-size: 0.85rem;
     }
-    .report-card:hover {
-        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-    }
-    .report-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: #0F1A2E;
-        margin: 0 0 0.5rem 0;
-    }
-    .report-detail {
-        font-size: 0.85rem;
-        color: #475569;
-        margin: 0.2rem 0;
-    }
-    .report-date {
-        font-size: 0.8rem;
-        color: #94A3B8;
-    }
+    .item-title { font-weight: 600; color: #1E3A5F; margin: 0 0 0.3rem 0; font-size: 0.9rem; }
+    .item-detail { color: #475569; margin: 0.1rem 0; font-size: 0.8rem; }
+    .item-meta { color: #9CA3AF; font-size: 0.72rem; }
 
-    /* Emergency card */
     .emergency-card {
-        background: #FEF2F2;
-        border: 1px solid #FECACA;
-        border-left: 4px solid #DC2626;
-        border-radius: 8px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 0.75rem;
-    }
-    .emergency-title {
-        font-size: 0.95rem;
-        font-weight: 700;
-        color: #991B1B;
-        margin: 0 0 0.35rem 0;
-    }
-    .emergency-detail {
-        font-size: 0.85rem;
-        color: #7F1D1D;
-        margin: 0.15rem 0;
+        background: #FEF2F2; border-left: 3px solid #DC2626; border-radius: 6px;
+        padding: 0.6rem 0.8rem; margin-bottom: 0.4rem; font-size: 0.8rem;
     }
 
-    /* Activity item */
-    .activity-item {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        padding: 0.6rem 0;
-        border-bottom: 1px solid #F1F5F9;
-    }
-    .activity-icon {
-        font-size: 1.25rem;
-        flex-shrink: 0;
-        margin-top: 2px;
-    }
-    .activity-text {
-        font-size: 0.85rem;
-        color: #334155;
-        margin: 0;
-    }
-    .activity-time {
-        font-size: 0.75rem;
-        color: #94A3B8;
-        margin: 0;
+    .progress-bar-bg { background: #E5E7EB; border-radius: 100px; height: 8px; width: 100%; }
+    .progress-bar-fill { background: #059669; border-radius: 100px; height: 8px; }
+
+    .reservation-detail {
+        background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 6px;
+        padding: 0.5rem 0.75rem; margin: 0.3rem 0; font-size: 0.8rem; color: #0C4A6E;
     }
 
-    /* Section heading */
-    .section-heading {
-        font-size: 1rem;
-        font-weight: 700;
-        color: #0F1A2E;
-        margin-bottom: 1rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 2px solid #E2E8F0;
-    }
+    .section-title { font-size: 0.95rem; font-weight: 700; color: #1E3A5F; margin-bottom: 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid #E5E7EB; }
 
-    /* Reservation info */
-    .reservation-info {
-        background: #F0F9FF;
-        border: 1px solid #BAE6FD;
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-        margin: 0.5rem 0;
-    }
-    .reservation-info p {
-        margin: 0.15rem 0;
-        font-size: 0.85rem;
-        color: #0C4A6E;
-    }
-
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -255,23 +130,22 @@ st.markdown("""
 # SIDEBAR
 # ══════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## 🏢 Balcón Real")
+    st.markdown("## Balcón Real")
     st.markdown("##### Panel de Administración")
     st.markdown("---")
 
     pagina = st.radio(
         "Navegación",
-        ["📊 Dashboard", "🔧 Reportes", "📅 Reservas", "🚨 Emergencias"],
+        ["Dashboard", "Reportes", "Reservas", "Emergencias"],
         label_visibility="collapsed"
     )
 
     st.markdown("---")
-    st.markdown("##### 🤖 Chatbot PLN")
-    st.markdown("BETO · 20 intenciones · v5.0")
-    st.markdown(f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    st.markdown("##### Chatbot PLN v5.0")
+    st.markdown("BETO · 20 intenciones")
 
     st.markdown("---")
-    if st.button("🔄 Actualizar datos", use_container_width=True):
+    if st.button("Actualizar datos", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -281,54 +155,75 @@ with st.sidebar:
 @st.cache_data(ttl=30)
 def obtener_reportes():
     docs = db.collection('reportes_mantenimiento').order_by('fecha_creacion', direction=firestore.Query.DESCENDING).stream()
-    reportes = []
-    for doc in docs:
-        data = doc.to_dict()
-        data['id'] = doc.id
-        reportes.append(data)
-    return reportes
+    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
 
 @st.cache_data(ttl=30)
 def obtener_reservas():
     docs = db.collection('solicitudes_reserva').order_by('fecha_creacion', direction=firestore.Query.DESCENDING).stream()
-    reservas = []
-    for doc in docs:
-        data = doc.to_dict()
-        data['id'] = doc.id
-        reservas.append(data)
-    return reservas
+    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
 
 @st.cache_data(ttl=30)
 def obtener_emergencias():
     docs = db.collection('alertas_emergencia').order_by('fecha', direction=firestore.Query.DESCENDING).stream()
-    emergencias = []
-    for doc in docs:
-        data = doc.to_dict()
-        data['id'] = doc.id
-        emergencias.append(data)
-    return emergencias
+    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
 
 def actualizar_estado_reporte(doc_id, nuevo_estado, notas=""):
     db.collection('reportes_mantenimiento').document(doc_id).update({
-        'estado': nuevo_estado,
-        'notas_admin': notas,
+        'estado': nuevo_estado, 'notas_admin': notas,
         'fecha_actualizacion': datetime.now().isoformat()
     })
 
 def actualizar_estado_reserva(doc_id, nuevo_estado):
     db.collection('solicitudes_reserva').document(doc_id).update({
-        'estado': nuevo_estado,
-        'fecha_actualizacion': datetime.now().isoformat()
+        'estado': nuevo_estado, 'fecha_actualizacion': datetime.now().isoformat()
     })
 
-def formatear_fecha(fecha_str):
-    """Formatea fecha ISO a formato legible"""
-    if not fecha_str:
-        return "—"
-    try:
-        return fecha_str[:16].replace('T', '  ')
-    except:
-        return str(fecha_str)
+def fmt_fecha(f):
+    if not f: return "—"
+    try: return f[:16].replace('T', '  ')
+    except: return str(f)
+
+def calcular_tiempo_resolucion(reportes):
+    tiempos = []
+    for r in reportes:
+        if r.get('estado') == 'resuelto' and r.get('fecha_creacion') and r.get('fecha_actualizacion'):
+            try:
+                creacion = datetime.fromisoformat(r['fecha_creacion'])
+                actualizacion = datetime.fromisoformat(r['fecha_actualizacion'])
+                diff = (actualizacion - creacion).total_seconds() / 3600
+                if diff > 0: tiempos.append(diff)
+            except: pass
+    return sum(tiempos) / len(tiempos) if tiempos else 0
+
+def mensajes_hoy(reportes, reservas, emergencias):
+    hoy = datetime.now().strftime('%Y-%m-%d')
+    count = 0
+    for r in reportes:
+        if r.get('fecha_creacion', '').startswith(hoy): count += 1
+    for r in reservas:
+        if r.get('fecha_creacion', '').startswith(hoy): count += 1
+    for e in emergencias:
+        if e.get('fecha', '').startswith(hoy): count += 1
+    return count
+
+def exportar_reportes_excel(reportes):
+    rows = []
+    for r in reportes:
+        rows.append({
+            'Tipo': r.get('tipo', '').replace('_', ' ').title(),
+            'Descripción': r.get('descripcion', ''),
+            'Estado': r.get('estado', ''),
+            'Torre': r.get('torre', ''),
+            'Depto': r.get('depto', ''),
+            'Notas Admin': r.get('notas_admin', ''),
+            'Fecha Creación': fmt_fecha(r.get('fecha_creacion', '')),
+            'Última Actualización': fmt_fecha(r.get('fecha_actualizacion', '')),
+        })
+    df = pd.DataFrame(rows)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine='openpyxl')
+    buffer.seek(0)
+    return buffer
 
 EMOJI_TIPO = {
     'reporte_daño': '🔨', 'reporte_fuga': '💧', 'reporte_electrico': '⚡',
@@ -339,298 +234,270 @@ EMOJI_TIPO = {
 # ══════════════════════════════════════════════════════
 # PÁGINA: DASHBOARD
 # ══════════════════════════════════════════════════════
-if pagina == "📊 Dashboard":
-    st.markdown('<p class="page-header">📊 Dashboard</p>', unsafe_allow_html=True)
-    st.markdown('<p class="page-sub">Resumen general de gestión — Conjunto Balcón Real</p>', unsafe_allow_html=True)
+if pagina == "Dashboard":
+    st.markdown('<p class="page-title">Dashboard</p>', unsafe_allow_html=True)
+    st.markdown('<p class="page-subtitle">Resumen de gestión — Conjunto Balcón Real</p>', unsafe_allow_html=True)
 
     reportes = obtener_reportes()
     reservas = obtener_reservas()
     emergencias = obtener_emergencias()
 
-    pendientes_rep = len([r for r in reportes if r.get('estado') == 'pendiente'])
+    total = len(reportes)
+    pendientes = len([r for r in reportes if r.get('estado') == 'pendiente'])
     en_proceso = len([r for r in reportes if r.get('estado') == 'en_proceso'])
     resueltos = len([r for r in reportes if r.get('estado') == 'resuelto'])
     pendientes_res = len([r for r in reservas if r.get('estado') == 'pendiente'])
-    emergencias_no_atendidas = len([e for e in emergencias if not e.get('atendida', False)])
+    hoy = mensajes_hoy(reportes, reservas, emergencias)
+    tiempo_prom = calcular_tiempo_resolucion(reportes)
+    tasa_resolucion = (resueltos / total * 100) if total > 0 else 0
 
-    # KPIs
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    with col1:
-        st.markdown(f"""
-        <div class="kpi-card kpi-accent-amber">
-            <p class="kpi-number">{pendientes_rep}</p>
-            <p class="kpi-label">Reportes Pendientes</p>
-        </div>""", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div class="kpi-card kpi-accent-blue">
-            <p class="kpi-number">{en_proceso}</p>
-            <p class="kpi-label">En Proceso</p>
-        </div>""", unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-        <div class="kpi-card kpi-accent-green">
-            <p class="kpi-number">{resueltos}</p>
-            <p class="kpi-label">Resueltos</p>
-        </div>""", unsafe_allow_html=True)
-    with col4:
-        st.markdown(f"""
-        <div class="kpi-card kpi-accent-purple">
-            <p class="kpi-number">{pendientes_res}</p>
-            <p class="kpi-label">Reservas Pendientes</p>
-        </div>""", unsafe_allow_html=True)
-    with col5:
-        st.markdown(f"""
-        <div class="kpi-card kpi-accent-red">
-            <p class="kpi-number">{emergencias_no_atendidas}</p>
-            <p class="kpi-label">Emergencias Activas</p>
-        </div>""", unsafe_allow_html=True)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    with c1:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#2563EB">{total}</p><p class="kpi-label">Total Reportes</p></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#D97706">{pendientes}</p><p class="kpi-label">Pendientes</p></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#2563EB">{en_proceso}</p><p class="kpi-label">En Proceso</p></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#059669">{resueltos}</p><p class="kpi-label">Resueltos</p></div>', unsafe_allow_html=True)
+    with c5:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#7C3AED">{pendientes_res}</p><p class="kpi-label">Reservas Pend.</p></div>', unsafe_allow_html=True)
+    with c6:
+        st.markdown(f'<div class="kpi-box"><p class="kpi-num" style="color:#0891B2">{hoy}</p><p class="kpi-label">Mensajes Hoy</p></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Dos columnas: Reportes por tipo + Últimas actividades
-    col_left, col_right = st.columns(2)
+    col_tasa, col_tiempo = st.columns(2)
+    with col_tasa:
+        st.markdown('<p class="section-title">Tasa de Resolución</p>', unsafe_allow_html=True)
+        fill_width = min(tasa_resolucion, 100)
+        color = "#059669" if tasa_resolucion >= 70 else "#D97706" if tasa_resolucion >= 40 else "#DC2626"
+        st.markdown(f"""
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+            <div class="progress-bar-bg" style="flex:1;">
+                <div class="progress-bar-fill" style="width:{fill_width}%; background:{color};"></div>
+            </div>
+            <span style="font-weight:700; font-size:1.1rem; color:{color};">{tasa_resolucion:.0f}%</span>
+        </div>
+        <p style="font-size:0.75rem; color:#9CA3AF; margin-top:0.25rem;">{resueltos} de {total} reportes resueltos</p>
+        """, unsafe_allow_html=True)
+    with col_tiempo:
+        st.markdown('<p class="section-title">Tiempo Promedio de Resolución</p>', unsafe_allow_html=True)
+        if tiempo_prom > 0:
+            if tiempo_prom < 1: tiempo_txt = f"{tiempo_prom*60:.0f} minutos"
+            elif tiempo_prom < 24: tiempo_txt = f"{tiempo_prom:.1f} horas"
+            else: tiempo_txt = f"{tiempo_prom/24:.1f} días"
+            st.markdown(f'<p style="font-size:1.3rem; font-weight:700; color:#1E3A5F; margin:0;">{tiempo_txt}</p>', unsafe_allow_html=True)
+            st.markdown('<p style="font-size:0.75rem; color:#9CA3AF;">Desde creación hasta resolución</p>', unsafe_allow_html=True)
+        else:
+            st.markdown('<p style="font-size:0.85rem; color:#9CA3AF;">Sin datos de resolución aún</p>', unsafe_allow_html=True)
 
-    with col_left:
-        st.markdown('<p class="section-heading">🔧 Reportes por Tipo</p>', unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_g1, col_g2 = st.columns(2)
+    with col_g1:
+        st.markdown('<p class="section-title">Reportes por Tipo</p>', unsafe_allow_html=True)
         if reportes:
-            import pandas as pd
             tipos = {}
             for r in reportes:
-                tipo = r.get('tipo', 'sin_tipo').replace('_', ' ').title()
+                tipo = r.get('tipo', 'otro').replace('_', ' ').title()
                 tipos[tipo] = tipos.get(tipo, 0) + 1
-            df_tipos = pd.DataFrame(list(tipos.items()), columns=['Tipo', 'Cantidad'])
-            df_tipos = df_tipos.sort_values('Cantidad', ascending=True)
-            st.bar_chart(df_tipos.set_index('Tipo'), horizontal=True)
+            df_tipos = pd.DataFrame(list(tipos.items()), columns=['Tipo', 'Cantidad']).sort_values('Cantidad', ascending=False)
+            st.bar_chart(df_tipos.set_index('Tipo'), height=250)
         else:
-            st.info("No hay reportes registrados aún.")
-
-    with col_right:
-        st.markdown('<p class="section-heading">📋 Últimas Actividades</p>', unsafe_allow_html=True)
+            st.info("Sin datos")
+    with col_g2:
+        st.markdown('<p class="section-title">Estado de Reportes</p>', unsafe_allow_html=True)
         if reportes:
-            for r in reportes[:6]:
-                emoji = EMOJI_TIPO.get(r.get('tipo', ''), '📋')
-                fecha = formatear_fecha(r.get('fecha_creacion', ''))
-                tipo = r.get('tipo', 'N/A').replace('_', ' ').title()
-                desc = r.get('descripcion', '')[:70]
-                st.markdown(f"""
-                <div class="activity-item">
-                    <span class="activity-icon">{emoji}</span>
-                    <div>
-                        <p class="activity-text"><strong>{tipo}</strong> — {desc}...</p>
-                        <p class="activity-time">{fecha}</p>
-                    </div>
-                </div>""", unsafe_allow_html=True)
+            df_estados = pd.DataFrame({'Estado': ['Pendiente', 'En proceso', 'Resuelto'], 'Cantidad': [pendientes, en_proceso, resueltos]})
+            st.bar_chart(df_estados.set_index('Estado'), height=250)
         else:
-            st.info("No hay actividad registrada aún.")
+            st.info("Sin datos")
 
-    # Emergencias recientes
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_top, col_actividad = st.columns(2)
+    with col_top:
+        st.markdown('<p class="section-title">Top 3 Problemas Más Frecuentes</p>', unsafe_allow_html=True)
+        if reportes:
+            tipos = {}
+            for r in reportes:
+                tipo = r.get('tipo', 'otro').replace('_', ' ').title()
+                tipos[tipo] = tipos.get(tipo, 0) + 1
+            top3 = sorted(tipos.items(), key=lambda x: x[1], reverse=True)[:3]
+            for idx, (tipo, count) in enumerate(top3):
+                medal = ["🥇", "🥈", "🥉"][idx]
+                pct = count / total * 100 if total > 0 else 0
+                st.markdown(f'<div style="display:flex; justify-content:space-between; padding:0.35rem 0; border-bottom:1px solid #F1F5F9;"><span style="font-size:0.85rem;">{medal} {tipo}</span><span style="font-size:0.8rem; color:#6B7280;">{count} ({pct:.0f}%)</span></div>', unsafe_allow_html=True)
+    with col_actividad:
+        st.markdown('<p class="section-title">Actividad Reciente</p>', unsafe_allow_html=True)
+        if reportes:
+            for r in reportes[:5]:
+                emoji = EMOJI_TIPO.get(r.get('tipo', ''), '·')
+                tipo = r.get('tipo', '').replace('_', ' ').title()
+                fecha = fmt_fecha(r.get('fecha_creacion', ''))
+                desc = r.get('descripcion', '')[:60]
+                st.markdown(f'<div style="padding:0.3rem 0; border-bottom:1px solid #F1F5F9; font-size:0.8rem;"><span style="color:#1E3A5F; font-weight:600;">{emoji} {tipo}</span><span style="color:#9CA3AF;"> · {fecha}</span><br><span style="color:#6B7280;">{desc}</span></div>', unsafe_allow_html=True)
+
     if emergencias:
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<p class="section-heading">🚨 Alertas de Emergencia Recientes</p>', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">Alertas de Emergencia Recientes</p>', unsafe_allow_html=True)
         for e in emergencias[:3]:
-            fecha = formatear_fecha(e.get('fecha', ''))
-            st.markdown(f"""
-            <div class="emergency-card">
-                <p class="emergency-title">🚨 {e.get('palabra_clave', 'N/A').upper()}</p>
-                <p class="emergency-detail">{e.get('mensaje', 'N/A')[:120]}</p>
-                <p class="emergency-detail" style="color:#94A3B8; font-size:0.75rem;">{fecha}</p>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f'<div class="emergency-card"><strong style="color:#991B1B;">{e.get("palabra_clave", "").upper()}</strong><span style="color:#9CA3AF; font-size:0.72rem;"> · {fmt_fecha(e.get("fecha", ""))}</span><br><span style="color:#7F1D1D; font-size:0.78rem;">{e.get("mensaje", "")[:100]}</span></div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
-# PÁGINA: REPORTES DE MANTENIMIENTO
+# PÁGINA: REPORTES
 # ══════════════════════════════════════════════════════
-elif pagina == "🔧 Reportes":
-    st.markdown('<p class="page-header">🔧 Reportes de Mantenimiento</p>', unsafe_allow_html=True)
-    st.markdown('<p class="page-sub">Gestione los reportes recibidos por el chatbot</p>', unsafe_allow_html=True)
+elif pagina == "Reportes":
+    st.markdown('<p class="page-title">Reportes de Mantenimiento</p>', unsafe_allow_html=True)
+    st.markdown('<p class="page-subtitle">Gestione los reportes recibidos por el chatbot</p>', unsafe_allow_html=True)
 
     reportes = obtener_reportes()
 
-    # Filtros en una fila
-    col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
+    col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
     with col_f1:
-        filtro_estado = st.selectbox("Estado", ["Todos", "pendiente", "en_proceso", "resuelto"])
-    with col_f2:
         tipos_unicos = sorted(set(r.get('tipo', '') for r in reportes))
-        filtro_tipo = st.selectbox("Tipo", ["Todos"] + tipos_unicos)
+        filtro_tipo = st.selectbox("Tipo", ["Todos"] + tipos_unicos, key="rep_tipo")
+    with col_f2:
+        torres_unicas = sorted(set(str(r.get('torre', '')) for r in reportes if r.get('torre') and str(r.get('torre')) != 'None'))
+        filtro_torre = st.selectbox("Torre", ["Todas"] + torres_unicas, key="rep_torre")
     with col_f3:
-        buscar = st.text_input("🔍 Buscar en descripción", placeholder="Escriba para buscar...")
+        buscar = st.text_input("Buscar", placeholder="Buscar en descripción...", key="rep_buscar")
 
-    reportes_filtrados = reportes
-    if filtro_estado != "Todos":
-        reportes_filtrados = [r for r in reportes_filtrados if r.get('estado') == filtro_estado]
+    reportes_f = reportes
     if filtro_tipo != "Todos":
-        reportes_filtrados = [r for r in reportes_filtrados if r.get('tipo') == filtro_tipo]
+        reportes_f = [r for r in reportes_f if r.get('tipo') == filtro_tipo]
+    if filtro_torre != "Todas":
+        reportes_f = [r for r in reportes_f if str(r.get('torre', '')) == filtro_torre]
     if buscar:
-        reportes_filtrados = [r for r in reportes_filtrados if buscar.lower() in r.get('descripcion', '').lower()]
+        reportes_f = [r for r in reportes_f if buscar.lower() in r.get('descripcion', '').lower()]
 
-    st.markdown(f"**{len(reportes_filtrados)}** reportes encontrados")
-    st.markdown("---")
+    col_count, col_export = st.columns([3, 1])
+    with col_count:
+        st.markdown(f"**{len(reportes_f)}** reportes encontrados")
+    with col_export:
+        if reportes_f:
+            excel_data = exportar_reportes_excel(reportes_f)
+            st.download_button("Exportar Excel", data=excel_data, file_name=f"reportes_balcon_real_{datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
 
-    if not reportes_filtrados:
-        st.info("No hay reportes con los filtros seleccionados.")
+    tab_pend, tab_proc, tab_res = st.tabs(["Pendientes", "En Proceso", "Resueltos"])
 
-    for i, reporte in enumerate(reportes_filtrados):
-        emoji = EMOJI_TIPO.get(reporte.get('tipo', ''), '📋')
-        estado = reporte.get('estado', 'pendiente')
-        tipo = reporte.get('tipo', 'N/A').replace('_', ' ').title()
-        fecha = formatear_fecha(reporte.get('fecha_creacion', ''))
+    def mostrar_reportes(lista, tab_key):
+        if not lista:
+            st.info("No hay reportes en esta categoría.")
+            return
+        for i, r in enumerate(lista):
+            emoji = EMOJI_TIPO.get(r.get('tipo', ''), '·')
+            tipo = r.get('tipo', '').replace('_', ' ').title()
+            estado = r.get('estado', 'pendiente')
+            fecha = fmt_fecha(r.get('fecha_creacion', ''))
+            torre = r.get('torre', '')
+            depto = r.get('depto', '')
+            ubicacion = f"Torre {torre}, Depto {depto}" if torre and str(torre) != 'None' else ""
 
-        with st.container():
-            st.markdown(f"""
-            <div class="report-card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <p class="report-title">{emoji} {tipo}</p>
-                    <span class="badge badge-{estado}">{estado.replace('_',' ').upper()}</span>
-                </div>
-                <p class="report-detail">📝 {reporte.get('descripcion', 'Sin descripción')}</p>
-                <p class="report-date">📅 {fecha} · 👤 ID: {reporte.get('user_id', 'N/A')}</p>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="item-card"><div style="display:flex; justify-content:space-between; align-items:center;"><p class="item-title">{emoji} {tipo}</p><span class="badge badge-{estado}">{estado.replace('_',' ')}</span></div><p class="item-detail">{r.get('descripcion', '')}</p><p class="item-meta">{fecha}{(' · ' + ubicacion) if ubicacion else ''} · ID: {r.get('user_id', 'N/A')}</p>{f'<p class="item-detail" style="color:#2563EB;">Nota: {r.get("notas_admin")}</p>' if r.get('notas_admin') else ''}</div>""", unsafe_allow_html=True)
 
-            col_a, col_b, col_c = st.columns([1, 2, 1])
-            with col_a:
-                nuevo_estado = st.selectbox(
-                    "Estado",
-                    ["pendiente", "en_proceso", "resuelto"],
-                    index=["pendiente", "en_proceso", "resuelto"].index(estado),
-                    key=f"est_{reporte['id']}_{i}",
-                    label_visibility="collapsed"
-                )
-            with col_b:
-                notas = st.text_input(
-                    "Nota",
-                    value=reporte.get('notas_admin', ''),
-                    placeholder="Agregar nota del administrador...",
-                    key=f"nota_{reporte['id']}_{i}",
-                    label_visibility="collapsed"
-                )
-            with col_c:
-                if st.button("💾 Guardar", key=f"btn_{reporte['id']}_{i}", use_container_width=True):
-                    actualizar_estado_reporte(reporte['id'], nuevo_estado, notas)
-                    st.success("✅ Actualizado")
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c1:
+                nuevo = st.selectbox("Estado", ["pendiente", "en_proceso", "resuelto"], index=["pendiente", "en_proceso", "resuelto"].index(estado), key=f"e_{tab_key}_{r['id']}_{i}", label_visibility="collapsed")
+            with c2:
+                nota = st.text_input("Nota", value=r.get('notas_admin', ''), placeholder="Agregar nota...", key=f"n_{tab_key}_{r['id']}_{i}", label_visibility="collapsed")
+            with c3:
+                if st.button("Guardar", key=f"b_{tab_key}_{r['id']}_{i}", use_container_width=True):
+                    actualizar_estado_reporte(r['id'], nuevo, nota)
+                    st.success("Actualizado")
                     st.cache_data.clear()
                     st.rerun()
+
+    with tab_pend:
+        mostrar_reportes([r for r in reportes_f if r.get('estado') == 'pendiente'], 'pend')
+    with tab_proc:
+        mostrar_reportes([r for r in reportes_f if r.get('estado') == 'en_proceso'], 'proc')
+    with tab_res:
+        mostrar_reportes([r for r in reportes_f if r.get('estado') == 'resuelto'], 'res')
 
 # ══════════════════════════════════════════════════════
 # PÁGINA: RESERVAS
 # ══════════════════════════════════════════════════════
-elif pagina == "📅 Reservas":
-    st.markdown('<p class="page-header">📅 Solicitudes de Reserva</p>', unsafe_allow_html=True)
-    st.markdown('<p class="page-sub">Apruebe o rechace reservas de áreas comunales — el residente será notificado por Telegram</p>', unsafe_allow_html=True)
+elif pagina == "Reservas":
+    st.markdown('<p class="page-title">Solicitudes de Reserva</p>', unsafe_allow_html=True)
+    st.markdown('<p class="page-subtitle">Apruebe o rechace reservas — el residente será notificado por Telegram</p>', unsafe_allow_html=True)
 
     reservas = obtener_reservas()
+    tab_pend, tab_apr, tab_rech = st.tabs(["Pendientes", "Aprobadas", "Rechazadas"])
 
-    # Filtro
-    filtro_estado_res = st.selectbox("Filtrar por estado", ["Todos", "pendiente", "aprobada", "rechazada"])
-    if filtro_estado_res != "Todos":
-        reservas = [r for r in reservas if r.get('estado') == filtro_estado_res]
+    def mostrar_reservas(lista, tab_key, mostrar_botones=False):
+        if not lista:
+            st.info("No hay reservas en esta categoría.")
+            return
+        for i, r in enumerate(lista):
+            estado = r.get('estado', 'pendiente')
+            area = r.get('area', 'No especificada')
+            torre = r.get('torre', 'N/A')
+            depto = r.get('depto', 'N/A')
+            fecha_hora = r.get('fecha_hora_solicitada', None)
+            fecha_creacion = fmt_fecha(r.get('fecha_creacion', ''))
+            user_id = r.get('user_id', '')
 
-    st.markdown(f"**{len(reservas)}** solicitudes encontradas")
-    st.markdown("---")
+            st.markdown(f"""<div class="item-card"><div style="display:flex; justify-content:space-between; align-items:center;"><p class="item-title">{area}</p><span class="badge badge-{estado}">{estado}</span></div><div class="reservation-detail"><strong>Solicitante:</strong> Torre {torre}, Depto {depto}<br><strong>Fecha/Hora solicitada:</strong> {fecha_hora if fecha_hora else 'No especificada'}<br><strong>Fecha de solicitud:</strong> {fecha_creacion}</div></div>""", unsafe_allow_html=True)
 
-    if not reservas:
-        st.info("No hay solicitudes de reserva con los filtros seleccionados.")
-
-    for i, reserva in enumerate(reservas):
-        estado = reserva.get('estado', 'pendiente')
-        area = reserva.get('area', 'Área no especificada')
-        torre = reserva.get('torre', 'N/A')
-        depto = reserva.get('depto', 'N/A')
-        fecha_hora_solicitada = reserva.get('fecha_hora_solicitada', None)
-        fecha_creacion = formatear_fecha(reserva.get('fecha_creacion', ''))
-        user_id = reserva.get('user_id', '')
-
-        with st.container():
-            st.markdown(f"""
-            <div class="report-card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <p class="report-title">🏢 {area}</p>
-                    <span class="badge badge-{estado}">{estado.upper()}</span>
-                </div>
-                <div class="reservation-info">
-                    <p>🏠 <strong>Solicitante:</strong> Torre {torre}, Depto {depto}</p>
-                    <p>📅 <strong>Fecha/Hora solicitada:</strong> {fecha_hora_solicitada if fecha_hora_solicitada else 'No especificada'}</p>
-                    <p>🕐 <strong>Fecha de solicitud:</strong> {fecha_creacion}</p>
-                </div>
-            </div>""", unsafe_allow_html=True)
-
-            if estado == 'pendiente':
-                col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-                with col_btn1:
-                    if st.button("✅ Aprobar", key=f"aprobar_{reserva['id']}_{i}", use_container_width=True):
-                        actualizar_estado_reserva(reserva['id'], 'aprobada')
-                        # Notificar al usuario por Telegram
-                        msg = (f"✅ ¡Su reserva ha sido APROBADA!\n\n"
-                               f"📋 Área: {area}\n"
-                               f"📅 Fecha/Hora: {fecha_hora_solicitada if fecha_hora_solicitada else 'Por confirmar'}\n\n"
-                               f"Recuerde cumplir con las normas de uso de áreas comunales.\n"
-                               f"¡Que la disfrute! 😊")
-                        if user_id:
-                            enviar_notificacion_telegram(user_id, msg)
-                        st.success("✅ Aprobada — Notificación enviada al residente")
+            if mostrar_botones:
+                c1, c2, c3 = st.columns([1, 1, 2])
+                with c1:
+                    if st.button("Aprobar", key=f"apr_{tab_key}_{r['id']}_{i}", use_container_width=True):
+                        actualizar_estado_reserva(r['id'], 'aprobada')
+                        msg = f"Su reserva ha sido APROBADA.\n\nArea: {area}\nFecha/Hora: {fecha_hora if fecha_hora else 'Por confirmar'}\n\nRecuerde cumplir con las normas de uso."
+                        if user_id: enviar_notificacion_telegram(user_id, msg)
+                        st.success("Aprobada — Notificación enviada")
                         st.cache_data.clear()
                         st.rerun()
-                with col_btn2:
-                    if st.button("❌ Rechazar", key=f"rechazar_{reserva['id']}_{i}", use_container_width=True):
-                        actualizar_estado_reserva(reserva['id'], 'rechazada')
-                        # Notificar al usuario por Telegram
-                        msg = (f"❌ Su reserva ha sido RECHAZADA.\n\n"
-                               f"📋 Área: {area}\n"
-                               f"📅 Fecha/Hora: {fecha_hora_solicitada if fecha_hora_solicitada else 'No especificada'}\n\n"
-                               f"Puede contactar a la administración para más información\n"
-                               f"o solicitar otra fecha.")
-                        if user_id:
-                            enviar_notificacion_telegram(user_id, msg)
-                        st.warning("❌ Rechazada — Notificación enviada al residente")
+                with c2:
+                    if st.button("Rechazar", key=f"rech_{tab_key}_{r['id']}_{i}", use_container_width=True):
+                        actualizar_estado_reserva(r['id'], 'rechazada')
+                        msg = f"Su reserva ha sido RECHAZADA.\n\nArea: {area}\nFecha/Hora: {fecha_hora if fecha_hora else 'No especificada'}\n\nContacte a la administración para más información."
+                        if user_id: enviar_notificacion_telegram(user_id, msg)
+                        st.warning("Rechazada — Notificación enviada")
                         st.cache_data.clear()
                         st.rerun()
+
+    with tab_pend:
+        mostrar_reservas([r for r in reservas if r.get('estado') == 'pendiente'], 'pend', mostrar_botones=True)
+    with tab_apr:
+        mostrar_reservas([r for r in reservas if r.get('estado') == 'aprobada'], 'apr')
+    with tab_rech:
+        mostrar_reservas([r for r in reservas if r.get('estado') == 'rechazada'], 'rech')
 
 # ══════════════════════════════════════════════════════
 # PÁGINA: EMERGENCIAS
 # ══════════════════════════════════════════════════════
-elif pagina == "🚨 Emergencias":
-    st.markdown('<p class="page-header">🚨 Alertas de Emergencia</p>', unsafe_allow_html=True)
-    st.markdown('<p class="page-sub">Alertas detectadas automáticamente por el chatbot — requieren atención inmediata</p>', unsafe_allow_html=True)
+elif pagina == "Emergencias":
+    st.markdown('<p class="page-title">Alertas de Emergencia</p>', unsafe_allow_html=True)
+    st.markdown('<p class="page-subtitle">Alertas detectadas automáticamente por el chatbot</p>', unsafe_allow_html=True)
 
     emergencias = obtener_emergencias()
 
     if not emergencias:
-        st.success("✅ No hay alertas de emergencia registradas. Todo en orden.")
+        st.success("No hay alertas de emergencia registradas.")
     else:
         no_atendidas = [e for e in emergencias if not e.get('atendida', False)]
         atendidas = [e for e in emergencias if e.get('atendida', False)]
 
-        if no_atendidas:
-            st.markdown(f'<p class="section-heading">⚠️ Sin atender ({len(no_atendidas)})</p>', unsafe_allow_html=True)
-            for i, e in enumerate(no_atendidas):
-                fecha = formatear_fecha(e.get('fecha', ''))
-                st.markdown(f"""
-                <div class="emergency-card">
-                    <p class="emergency-title">🚨 {e.get('palabra_clave', 'N/A').upper()}</p>
-                    <p class="emergency-detail">📝 {e.get('mensaje', 'N/A')}</p>
-                    <p class="emergency-detail">👤 User ID: {e.get('user_id', 'N/A')}</p>
-                    <p class="emergency-detail" style="color:#94A3B8; font-size:0.75rem;">📅 {fecha}</p>
-                </div>""", unsafe_allow_html=True)
+        tab_activas, tab_historial = st.tabs([f"Activas ({len(no_atendidas)})", f"Historial ({len(atendidas)})"])
 
-                if st.button(f"✅ Marcar como atendida", key=f"atender_{e['id']}_{i}"):
-                    db.collection('alertas_emergencia').document(e['id']).update({
-                        'atendida': True,
-                        'fecha_atencion': datetime.now().isoformat()
-                    })
+        with tab_activas:
+            if not no_atendidas:
+                st.success("Todas las emergencias han sido atendidas.")
+            for i, e in enumerate(no_atendidas):
+                fecha = fmt_fecha(e.get('fecha', ''))
+                st.markdown(f'<div class="emergency-card"><strong style="color:#991B1B;">{e.get("palabra_clave", "").upper()}</strong><span style="color:#9CA3AF; font-size:0.72rem;"> · {fecha}</span><br><span style="color:#7F1D1D; font-size:0.8rem;">{e.get("mensaje", "")}</span><br><span style="color:#9CA3AF; font-size:0.72rem;">User ID: {e.get("user_id", "N/A")}</span></div>', unsafe_allow_html=True)
+                if st.button("Marcar como atendida", key=f"at_{e['id']}_{i}"):
+                    db.collection('alertas_emergencia').document(e['id']).update({'atendida': True, 'fecha_atencion': datetime.now().isoformat()})
                     st.success("Marcada como atendida")
                     st.cache_data.clear()
                     st.rerun()
 
-        if atendidas:
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander(f"📋 Historial de emergencias atendidas ({len(atendidas)})"):
-                for e in atendidas:
-                    fecha = formatear_fecha(e.get('fecha', ''))
-                    st.markdown(f"""
-                    <div style="padding:0.5rem 0; border-bottom:1px solid #F1F5F9;">
-                        <p style="margin:0; font-size:0.85rem; color:#475569;">
-                            ✅ <strong>{e.get('palabra_clave', '').upper()}</strong> — {e.get('mensaje', '')[:80]}...
-                            <span style="color:#94A3B8; font-size:0.75rem;"> · {fecha}</span>
-                        </p>
-                    </div>""", unsafe_allow_html=True)
+        with tab_historial:
+            if not atendidas:
+                st.info("No hay emergencias en el historial.")
+            for e in atendidas:
+                fecha = fmt_fecha(e.get('fecha', ''))
+                st.markdown(f'<div style="padding:0.35rem 0; border-bottom:1px solid #F1F5F9; font-size:0.8rem;"><strong style="color:#065F46;">{e.get("palabra_clave", "").upper()}</strong><span style="color:#9CA3AF; font-size:0.72rem;"> · {fecha}</span><br><span style="color:#6B7280;">{e.get("mensaje", "")[:80]}</span></div>', unsafe_allow_html=True)
